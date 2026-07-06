@@ -67,41 +67,18 @@ def build_travel_graph(demand: TravelDemand) -> str:
     # 执行流程
     print("🔍 开始调研目的地信息...")
     final_state = app.invoke(initial_state)
-    
-    # 格式化输出
-    result = f"""
-    {'='*60}
-    📋 旅行规划报告
-    {'='*60}
-    
-    📍 目的地：{final_state['destination']}
-    📅 天数：{final_state['days']}天
-    💰 预算：{final_state['budget']}元
-    🎯 兴趣：{final_state['interests']}
-    
-    {'='*60}
-    🔍 目的地调研
-    {'='*60}
-    {final_state['research_result']}
-    
-    {'='*60}
-    💵 预算分配方案
-    {'='*60}
-    {final_state['budget_allocation']}
-    
-    {'='*60}
-    🗓️ 详细行程规划
-    {'='*60}
-    {final_state['itinerary']}
-    
-    {'='*60}
-    📊 预算分析
-    {'='*60}
-    {final_state['budget_analysis']}
-    
-    {'='*60}
-    迭代次数：{final_state['iteration_count']}
-    {'='*60}
-    """
-    
+
+    # 返回结构化数据（JSON格式）
+    result = {
+        "destination": final_state['destination'],
+        "days": final_state['days'],
+        "budget": final_state['budget'],
+        "interests": final_state['interests'],
+        "research_result": final_state['research_result'],
+        "budget_allocation": final_state['budget_allocation'],
+        "itinerary": final_state['itinerary'],
+        "budget_analysis": final_state['budget_analysis'],
+        "iteration_count": final_state['iteration_count']
+    }
+
     return result

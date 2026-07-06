@@ -2,8 +2,47 @@
 旅行规划助手 - 主程序入口
 """
 
+import json
 from chat_consultant import DemandChatConsultant
 from graph_builder import build_travel_graph
+
+def format_itinerary(result: dict) -> str:
+    """格式化行程输出（CLI模式）"""
+    return f"""
+{'='*60}
+📋 旅行规划报告
+{'='*60}
+
+📍 目的地：{result['destination']}
+📅 天数：{result['days']}天
+💰 预算：{result['budget']}元
+🎯 兴趣：{result['interests']}
+
+{'='*60}
+🔍 目的地调研
+{'='*60}
+{result['research_result']}
+
+{'='*60}
+💵 预算分配方案
+{'='*60}
+{result['budget_allocation']}
+
+{'='*60}
+🗓️ 详细行程规划
+{'='*60}
+{result['itinerary']}
+
+{'='*60}
+📊 预算分析
+{'='*60}
+{result['budget_analysis']}
+
+{'='*60}
+迭代次数：{result['iteration_count']}
+{'='*60}
+"""
+
 def main():
     print("=" * 60)
     print("✈️  智能旅行规划助手")
@@ -30,8 +69,10 @@ def main():
             confirm = input("确认以上需求并生成详细行程吗？(yes/no): ").strip().lower()
             if confirm in ["yes", "y", "确认"]:
                 print("\n🔍 正在为你生成详细旅行方案，请稍候...\n")
-                itinerary = build_travel_graph(demand)
-                print(itinerary)
+                result = build_travel_graph(demand)
+                # CLI模式：格式化输出
+                print(format_itinerary(result))
+                # API模式：可以直接返回result字典或json.dumps(result)
                 break
             else:
                 print("\n助手: 好的，你可以告诉我需要调整的地方~")
