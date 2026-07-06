@@ -42,7 +42,7 @@ pip install -r requirements.txt
 # 千帆API配置
 QIANFAN_API_KEY=your_qianfan_api_key
 QIANFAN_SECRET_KEY=your_qianfan_secret_key
-QIANFAN_BASE_URL=https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat
+QIANFAN_BASE_URL=https://qianfan.baidubce.com/v2
 
 # 智谱AI配置（备用）
 ZHIPU_API_KEY=your_zhipu_api_key
