@@ -1,39 +1,25 @@
 """
-LangGraph 节点函数
+LangGraph 节点函数 - 适配结构化输出
 """
 import re
 from langchain_core.prompts import ChatPromptTemplate
 
-from models import TravelState
-from config import llm, tavily_search
-
-
-def retry_on_rate_limit(max_retries=3, delay=2):
-    """重试装饰器，处理速率限制错误"""
-    import time
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if "429" in str(e) or "速率限制" in str(e) or "1302" in str(e):
-                        if attempt < max_retries - 1:
-                            wait_time = delay * (attempt + 1)
-                            print(f"[WARN] 遇到速率限制，等待 {wait_time} 秒后重试... (尝试 {attempt + 1}/{max_retries})")
-                            time.sleep(wait_time)
-                            continue
-                    raise
-        return wrapper
-    return decorator
+from models.models import TravelState
+from models.models import (
+    research_parser,
+    budget_allocation_parser,
+    itinerary_parser,
+    budget_analysis_parser
+)
+from config.config import llm, tavily_search
+from utils.utils import retry_on_rate_limit
 
 
 @retry_on_rate_limit(max_retries=3, delay=2)
 def researcher_node(state: TravelState) -> TravelState:
-    """目的地调研节点"""
+    """目的地调研节点 - 输出结构化 ResearchResult"""
     print(f"[DEBUG] 执行 researcher_node，目的地: {state['destination']}")
 
-    # 先联网查询实时价格信息
     search_queries = [
         f"{state['destination']} 门票价格 轮渡费用",
         f"{state['destination']} 住宿价格 消费水平",
@@ -53,8 +39,6 @@ def researcher_node(state: TravelState) -> TravelState:
     prompt = ChatPromptTemplate.from_messages([
         ("system", """你是一名资深旅行撰稿人，游历过100多个国家。
         请调研{destination}的相关信息，适配{days}天出行需求。
-        涵盖内容：最佳出行时节、推荐住宿片区及价格区间、必打卡景点及门票价格、
-        当地特色美食及消费水平、市内交通指南及费用、当地民俗注意事项。
         游客偏好：{interests}
 
         请特别关注当地的消费水平，包括：
@@ -71,27 +55,42 @@ def researcher_node(state: TravelState) -> TravelState:
         5. 所有价格必须标注来源（搜索结果/官方信息）
 
         联网搜索的实时价格信息：
-        {search_context}"""),
+        {search_context}
+
+        请严格按照以下JSON格式输出：
+        {format_instructions}"""),
         ("human", "请提供{destination}的综合调研简报，严格基于搜索结果，禁止编造")
-    ])
+    ]).partial(format_instructions=research_parser.get_format_instructions())
 
     chain = prompt | llm
-    research_result = chain.invoke({
+    response = chain.invoke({
         "destination": state["destination"],
         "days": state["days"],
         "interests": state["interests"],
         "search_context": search_context
     })
 
-    state["research_result"] = research_result.content
+    try:
+        research_result = research_parser.parse(response.content)
+        state["research_result"] = research_result
+    except Exception as e:
+        print(f"[WARN] 解析调研结果失败: {e}")
+        state["error"] = f"调研解析失败: {e}"
+        state["research_result"] = None
+
+    state["status"] = "budgeting"
     print(f"[DEBUG] researcher_node 完成")
     return state
 
 
 @retry_on_rate_limit(max_retries=3, delay=2)
 def budget_analyst_node(state: TravelState) -> TravelState:
-    """预算分析师节点 - 前置预算分配"""
+    """预算分析师节点 - 前置预算分配，输出结构化 BudgetAllocation"""
     print(f"[DEBUG] 执行 budget_analyst_node，预算: {state['budget']}元")
+
+    research_result = state["research_result"]
+    research_text = research_result.model_dump_json(indent=2) if research_result else "无调研数据"
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", """你是一名旅行财务顾问。
         根据目的地调研结果，在{budget}元总预算范围内，为{days}天旅行制定预算分配方案。
@@ -110,34 +109,43 @@ def budget_analyst_node(state: TravelState) -> TravelState:
         4. 严禁编造价格！必须基于调研结果中的价格信息
         5. 严禁把轮渡费用算在门票里，两者独立计算
 
-        输出格式：
-        - 刚性成本（门票、轮渡）：XXX元（列出明细）
-        - 必需成本（住宿、餐饮）：XXX元（列出明细）
-        - 弹性成本（交通、其他）：XXX元（列出明细）
-        - 备用金：XXX元
-        - 总计：XXX元
-        - 预算评估：充足/紧张/不足
-        - 调整建议：[如果不足，给出具体建议]"""),
+        请严格按照以下JSON格式输出：
+        {format_instructions}"""),
         ("human", "请制定{destination}{days}天的预算分配方案，正向计算，禁止负数")
-    ])
+    ]).partial(format_instructions=budget_allocation_parser.get_format_instructions())
 
     chain = prompt | llm
-    budget_allocation = chain.invoke({
+    response = chain.invoke({
         "destination": state["destination"],
         "days": state["days"],
         "budget": state["budget"],
-        "research_result": state["research_result"]
+        "research_result": research_text
     })
 
-    state["budget_allocation"] = budget_allocation.content
+    try:
+        budget_allocation = budget_allocation_parser.parse(response.content)
+        state["budget_allocation"] = budget_allocation
+    except Exception as e:
+        print(f"[WARN] 解析预算分配失败: {e}")
+        state["error"] = f"预算分配解析失败: {e}"
+        state["budget_allocation"] = None
+
+    state["status"] = "planning"
     print(f"[DEBUG] budget_analyst_node 完成")
     return state
 
 
 @retry_on_rate_limit(max_retries=3, delay=2)
 def planner_node(state: TravelState) -> TravelState:
-    """行程规划节点 - 在预算约束下规划"""
+    """行程规划节点 - 在预算约束下规划，输出结构化 Itinerary"""
     print(f"[DEBUG] 执行 planner_node，迭代次数: {state['iteration_count']}")
+
+    research_result = state["research_result"]
+    budget_allocation = state["budget_allocation"]
+
+    research_text = research_result.model_dump_json(indent=2) if research_result else "无调研数据"
+    budget_text = budget_allocation.model_dump_json(indent=2) if budget_allocation else "无预算数据"
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", """你是一名拥有15年经验的高端旅行顾问。
         为{destination}制作{days}日旅行行程，必须严格遵守预算限制。
@@ -166,28 +174,44 @@ def planner_node(state: TravelState) -> TravelState:
         5. 行程节奏合理，游玩体验舒适
         6. 如果某项活动可能超预算，说明原因并给出替代方案
 
-        输出按天划分的完整行程。"""),
+        请严格按照以下JSON格式输出：
+        {format_instructions}"""),
         ("human", "请规划{destination}{days}天的详细行程，基于调研信息，禁止编造")
-    ])
+    ]).partial(format_instructions=itinerary_parser.get_format_instructions())
 
     chain = prompt | llm
-    itinerary = chain.invoke({
+    response = chain.invoke({
         "destination": state["destination"],
         "days": state["days"],
         "interests": state["interests"],
-        "budget_allocation": state["budget_allocation"],
-        "research_result": state["research_result"]
+        "budget_allocation": budget_text,
+        "research_result": research_text
     })
 
-    state["itinerary"] = itinerary.content
+    try:
+        itinerary = itinerary_parser.parse(response.content)
+        state["itinerary"] = itinerary
+    except Exception as e:
+        print(f"[WARN] 解析行程规划失败: {e}")
+        state["error"] = f"行程解析失败: {e}"
+        state["itinerary"] = None
+
+    state["status"] = "checking"
     print(f"[DEBUG] planner_node 完成")
     return state
 
 
 @retry_on_rate_limit(max_retries=3, delay=2)
 def budget_check_node(state: TravelState) -> TravelState:
-    """预算检查节点 - 验证行程是否超预算"""
+    """预算检查节点 - 验证行程是否超预算，输出结构化 BudgetAnalysis"""
     print(f"[DEBUG] 执行 budget_check_node，当前迭代次数: {state['iteration_count']}")
+
+    budget_allocation = state["budget_allocation"]
+    itinerary = state["itinerary"]
+
+    budget_text = budget_allocation.model_dump_json(indent=2) if budget_allocation else "无预算数据"
+    itinerary_text = itinerary.model_dump_json(indent=2) if itinerary else "无行程数据"
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", """你是一名旅行财务顾问。
         请分析以下行程是否在{budget}元预算范围内。
@@ -211,39 +235,34 @@ def budget_check_node(state: TravelState) -> TravelState:
         3. 如果超支，指出超支项目和金额
         4. 如果超支，给出具体的调整建议
 
-        输出格式：
-        - 预估总花费：XXX元
-        - 是否超支：是/否
-        - 超支金额：XXX元（如未超支则写0）
-        - 调整建议：..."""),
+        请严格按照以下JSON格式输出：
+        {format_instructions}"""),
         ("human", "请分析行程预算情况，基于预算分配，禁止编造价格")
-    ])
+    ]).partial(format_instructions=budget_analysis_parser.get_format_instructions())
 
     chain = prompt | llm
-    budget_analysis = chain.invoke({
+    response = chain.invoke({
         "budget": state["budget"],
-        "itinerary": state["itinerary"],
-        "budget_allocation": state["budget_allocation"]
+        "itinerary": itinerary_text,
+        "budget_allocation": budget_text
     })
 
-    state["budget_analysis"] = budget_analysis.content
+    try:
+        budget_analysis = budget_analysis_parser.parse(response.content)
+        state["budget_analysis"] = budget_analysis
+    except Exception as e:
+        print(f"[WARN] 解析预算分析失败: {e}")
+        state["error"] = f"预算分析解析失败: {e}"
+        state["budget_analysis"] = None
+        return state
 
-    # 判断是否需要调整
-    analysis_text = budget_analysis.content.lower()
-    is_over_budget = "超支" in analysis_text or "超出" in analysis_text
+    budget_analysis = state["budget_analysis"]
+    tolerance = state["budget"] * 0.1
 
-    # 提取超支金额
-    over_budget_amount = 0
-    amount_match = re.search(r'超支金额[：:]\s*(\d+)', analysis_text)
-    if amount_match:
-        over_budget_amount = int(amount_match.group(1))
-
-    # 如果超支但不超过10%，则不需要调整
-    tolerance = state["budget"] * 0.1  # 10%容忍度
-    if is_over_budget and over_budget_amount <= tolerance:
-        print(f"[DEBUG] 超支{over_budget_amount}元，但在容忍度{tolerance:.0f}元内，不调整")
+    if budget_analysis.is_over_budget and budget_analysis.over_amount <= tolerance:
+        print(f"[DEBUG] 超支{budget_analysis.over_amount}元，但在容忍度{tolerance:.0f}元内，不调整")
         state["needs_adjustment"] = False
-    elif is_over_budget:
+    elif budget_analysis.is_over_budget:
         state["needs_adjustment"] = True
         state["iteration_count"] += 1
         print(f"[DEBUG] 需要调整，迭代次数增加到: {state['iteration_count']}")
