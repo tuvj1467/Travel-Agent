@@ -1,11 +1,11 @@
 title: travel-planner-agent
-description: Multi-agent CrewAI system creating personalized travel itineraries with budget planning
-author: ashishpatel26
+description: 基于 LangGraph 的智能旅行规划助手，支持预算感知的行程生成和工具调用循环
+author: travel-planner-team
 language: python
-framework: crewai
-tags: [travel, planning, crewai, itinerary, budget]
+framework: langgraph
+tags: [travel, planning, langgraph, itinerary, budget, langchain]
 industry: travel
 difficulty: intermediate
-llm: gpt-4o-mini
-entrypoint: agent.py
+llm: ernie-4.5-turbo-32k
+entrypoint: main.py
 requirements: requirements.txt

@@ -1,8 +1,9 @@
 """
-旅行规划助手 - 主程序入口
+旅行规划助手 - 主程序入口（异步版本）
 """
 
 import argparse
+import asyncio
 import json
 from models.models import TravelDemand
 from agent.graph_builder import build_travel_graph
@@ -85,7 +86,7 @@ def format_itinerary(result: dict) -> str:
     return '\n'.join(report)
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser(description="智能旅行规划助手")
     parser.add_argument("--destination", required=True, help="旅行目的地城市，完整名称")
     parser.add_argument("--days", type=int, required=True, help="旅行总天数，正整数")
@@ -111,7 +112,7 @@ def main():
         interests=args.interests
     )
 
-    result = build_travel_graph(demand)
+    result = await build_travel_graph(demand)
 
     if args.output == "text":
         print(format_itinerary(result))
@@ -120,4 +121,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

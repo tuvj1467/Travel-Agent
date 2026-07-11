@@ -25,5 +25,3 @@ llm = ChatOpenAI(
     temperature=0.4
 )
 
-# 初始化搜索工具
-tavily_search = TavilySearch(max_results=10)
