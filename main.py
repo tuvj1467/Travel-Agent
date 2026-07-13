@@ -23,19 +23,25 @@ def format_itinerary(result: dict) -> str:
     report.append(f"💰 预算：{result['budget']}元")
     report.append(f"🎯 兴趣：{result['interests']}")
 
-    if result['research_result']:
+    if result.get('simple_city_poi'):
         report.append(f"\n{'=' * 60}")
         report.append('🔍 目的地调研')
         report.append('=' * 60)
-        research = result['research_result']
-        report.append(f"最佳季节：{research.get('best_season', '')}")
-        report.append("\n消费水平参考：")
-        for item in research.get('cost_items', []):
-            report.append(f"  - {item['name']}：¥{item['amount']} ({item['category']})")
-        if research.get('notes'):
-            report.append(f"\n注意事项：{research['notes']}")
+        report.append(f"采集景点数量：{len(result['simple_city_poi'])}个")
+        report.append(f"景点详情数量：{len(result.get('selected_scenic_detail', []))}个")
 
-    if result['budget_allocation']:
+    if result.get('roughRoute'):
+        report.append(f"\n{'=' * 60}")
+        report.append('🗺️ 粗路线骨架（DEBUG）')
+        report.append('=' * 60)
+        rough_route = result['roughRoute']
+        report.append(f"目的地：{rough_route.get('destination', '')}")
+        report.append(f"总天数：{rough_route.get('days', 0)}")
+        report.append(f"\n路线景点：")
+        for route_poi in rough_route.get('route_pois', []):
+            report.append(f"  第{route_poi['day']}天 - 顺序{route_poi['order']} - {route_poi['name']} ({route_poi.get('time_slot', '')})")
+
+    if result.get('budget_allocation'):
         report.append(f"\n{'=' * 60}")
         report.append('💵 预算分配方案')
         report.append('=' * 60)
