@@ -139,7 +139,7 @@ RoutePrice (独立)
 | error | str | 错误信息 | 任意节点 | ✅ |
 | status | str | 当前状态 | 任意节点 | ✅ |
 | tool_call_count | int | 工具调用计数 | researcher/planner/budget_analyst | ✅ |
-| simple_city_poi | List[dict] | 轻量化景点列表 | researcher(工具调用) | ✅ |
+| simple_city_poi | List[SimplePOI] | 轻量化景点列表 | researcher(代码层调用) | ✅ |
 | selected_scenic_detail | List[dict] | 选中景点详情 | planner(工具调用) | ✅ |
 | raw_route | dict | 粗路线骨架 | planner | ⏳ |
 | route_related_price | List[dict] | 路线片区价格 | budget_analyst(工具调用) | ✅ |
@@ -173,28 +173,29 @@ RoutePrice (独立)
 ##### 1. researcher_node（目的地调研）
 
 - **文件**: [researcher.py](file:///d:/Travel/agent/researcher.py)
-- **输入**: destination, days, interests, simple_city_poi?, weather?
-- **输出**: research_result, simple_city_poi, weather
-- **功能**: 轻量化素材采集，代码层数据自检，条件工具调用
-- **解析器**: `research_parser` (PydanticOutputParser)
+- **输入**: destination, days, interests
+- **输出**: simple_city_poi
+- **功能**: 代码层直接调用高德工具，采集轻量化景点数据
+- **解析器**: `simple_poi_list_parser` (PydanticListOutputParser)
 
 **核心设计**:
-- 代码层检查 `simple_city_poi` 和 `weather` 是否存在
-- 缺失时引导 LLM 调用高德地图工具（maps_text_search, maps_weather）
+- **代码层直接调用工具**，不经过 LLM
+- 使用 `maps_text_search` 获取 POI 数据
+- 使用 `SimplePOI.model_validate()` 解析高德返回数据
 - 只采集骨架数据（名称、ID、经纬度、片区、分类），不拉取详情
-- 数据齐全后清空 messages 避免 token 积累
+- 数据采集完成后直接流转到 planner
 
 **工具调用策略**:
-- 优先使用 maps_text_search 获取 POI 数据
-- 使用 maps_weather 获取天气数据
-- 严禁使用 tavily_search（仅在 budget_analyst 中使用）
+- 直接调用 `maps_text_search(destination + "景点", city=destination)`
+- 使用 `simple_poi_list_parser.parse_list()` 解析返回的 pois 数组
+- **降级使用 tavily_search**
 
 ##### 2. planner_node（行程规划）
 
 - **文件**: [planner.py](file:///d:/Travel/agent/planner.py)
-- **输入**: destination, days, interests, simple_city_poi, selected_scenic_detail?
+- **输入**: destination, days, interests, simple_city_poi, selected_scenic_detail
 - **输出**: itinerary, selected_scenic_detail, raw_route?
-- **功能**: 两段式规划（粗框架 + 精细填充）
+- **功能**: 景点规划
 - **解析器**: `itinerary_parser`
 
 **核心设计**:
@@ -238,14 +239,13 @@ RoutePrice (独立)
 
 **注册工具**:
 - **基础工具**: tavily_search（限制3条结果）
-- **高德 MCP 工具**: maps_text_search, maps_weather, maps_search_detail, maps_geo
+- **高德 MCP 工具**: maps_text_search, maps_weather, maps_search_detail, maps_geo等
 
 #### 流程图
 
 ```
-researcher → [工具调用?] → tool_node → researcher (循环最多5次)
               ↓
-          planner → [工具调用?] → tool_node → planner (循环最多5次)
+researcher →planner → [工具调用?] → tool_node → planner (循环最多5次)
                      ↓
               budget_analyst → [工具调用?] → tool_node → budget_analyst (循环最多5次)
                                ↓
@@ -253,13 +253,7 @@ researcher → [工具调用?] → tool_node → researcher (循环最多5次)
                                               ↓
                                             END
 ```
-
 #### 条件边
-
-##### should_call_tool_researcher
-- 如果最后一条消息是 AIMessage 且有 tool_calls → tool_node
-- 如果工具调用次数 >= 5 → 强制进入 planner
-- 否则 → planner
 
 ##### should_call_tool_planner
 - 如果最后一条消息是 AIMessage 且有 tool_calls → tool_node
@@ -284,7 +278,7 @@ researcher → [工具调用?] → tool_node → researcher (循环最多5次)
 #### 状态流转
 
 ```
-researching → [tool_calling → tool_node → researching] → budgeting
+researching 
     ↓
 planning → [planning_tool → tool_node → planning] → budgeting
     ↓
@@ -318,16 +312,14 @@ gaode_tools = []  # 在 init_gaode_tools() 中动态加载
 
 | 工具 | 来源 | 用途 |
 |------|------|------|
-| tavily_search | Tavily API | 查询实时价格、消费水平 |
 | maps_text_search | 高德 MCP | POI 景点搜索（骨架数据） |
 | maps_weather | 高德 MCP | 天气查询 |
 | maps_search_detail | 高德 MCP | 景点详情查询 |
-| maps_geo | 高德 MCP | 地理编码 |
+| maps_direction | 高德 MCP | 路线规划（价格估算） |
 
 ### 工具调用限制
 
 - 每个节点的工具调用循环最多 5 次（防止无限循环）
-- Tavily 搜索结果限制为 3 条（减少 token 消耗）
 - ToolMessage 内容截断为 2000 字符（防止 token 超限）
 
 ## 关键设计决策
@@ -382,11 +374,14 @@ gaode_tools = []  # 在 init_gaode_tools() 中动态加载
 - LLM 倾向于选择错误的工具（如用 maps_geo 替代 maps_text_search）
 - 反复调用错误工具耗尽调用次数
 - 导致下游节点因缺少数据而崩溃
+- 浪费 token（LLM 调用 + 工具调用）
 
 **代码层控制的优势**:
 - 精确控制工具选择逻辑
-- 数据自检确保只采集缺失数据
-- 避免无效工具调用
+- 零 token 消耗（不调用 LLM）
+- 响应速度快（1-2秒 vs 5-10秒）
+- 100% 可靠的工具选择
+- 直接使用 `SimplePOI.model_validate()` 解析数据，无需 LLM 翻译
 
 ### 5. 为什么采用分层数据架构?
 
