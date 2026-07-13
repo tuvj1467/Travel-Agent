@@ -185,21 +185,21 @@ class WeatherData(BaseModel):
     humidity: str = Field(default="", description="湿度")
 
 
-class RoutePOI(BaseModel):
-    """路线中的景点条目"""
-    poi_id: str = Field(..., description="高德 POI ID")
-    name: str = Field(..., description="景点名称")
-    day: int = Field(..., description="第几天")
-    order: int = Field(default=1, description="当天游览顺序")
-    time_slot: str = Field(default="morning", description="时段：morning/afternoon/evening")
-    duration_hours: float = Field(default=2.0, description="预计游玩时长")
+# class RoutePOI(BaseModel):
+#     """路线中的景点条目"""
+#     poi_id: str = Field(..., description="高德 POI ID")
+#     name: str = Field(..., description="景点名称")
+#     day: int = Field(..., description="第几天")
+#     order: int = Field(default=1, description="当天游览顺序")
+#     time_slot: str = Field(default="morning", description="时段：morning/afternoon/evening")
+#     duration_hours: float = Field(default=2.0, description="预计游玩时长")
 
 
-class RoughRoute(BaseModel):
-    """粗路线骨架 - 仅含景点顺序，无详情"""
-    destination: str = Field(..., description="目的地")
-    days: int = Field(..., description="总天数")
-    route_pois: List[RoutePOI] = Field(default_factory=list, description="路线中所有景点")
+# class RoughRoute(BaseModel):
+#     """粗路线骨架 - 仅含景点顺序，无详情"""
+#     destination: str = Field(..., description="目的地")
+#     days: int = Field(..., description="总天数")
+#     route_pois: List[RoutePOI] = Field(default_factory=list, description="路线中所有景点")
 
 
 class RoutePrice(BaseModel):
@@ -234,11 +234,11 @@ class TravelState(TypedDict):
     # 新架构：分层数据字段
     simple_city_poi: Optional[List[SimplePOI]] = None  # 全城轻量化景点列表（仅名称/ID/坐标/片区/分类）
     selected_scenic_detail: Optional[List[ScenicDetail]] = None  # 路线选中景点的详情
-    
-    roughRoute: Optional[RoughRoute] = None  # 粗路线骨架
+
+    # roughRoute: Optional[RoughRoute] = None  # 粗路线骨架
     # route_related_price: Optional[List[RoutePrice]] = None  # 路线相关片区的价格
     weather: Optional[WeatherData] = None  # 天气数据
-    routePOI: Optional[List[RoutePOI]] = None  # 路线中的景点条目
+    # routePOI: Optional[List[RoutePOI]] = None  # 路线中的景点条目
 
 
 # ========== 需求参数模型 ==========
@@ -263,8 +263,8 @@ budget_analysis_parser = PydanticOutputParser(pydantic_object=BudgetAnalysis)
 simplePOI_parser = PydanticOutputParser(pydantic_object=SimplePOI)
 scenic_detail_parser = PydanticOutputParser(pydantic_object=ScenicDetail)
 weather_parser = PydanticOutputParser(pydantic_object=WeatherData)
-routePOI_parser = PydanticOutputParser(pydantic_object=RoutePOI)
-roughRoute_parser = PydanticOutputParser(pydantic_object=RoughRoute)
+# routePOI_parser = PydanticOutputParser(pydantic_object=RoutePOI)
+# roughRoute_parser = PydanticOutputParser(pydantic_object=RoughRoute)
 # route_related_price_parser = PydanticOutputParser(pydantic_object=RoutePrice)
 
 # ========== 列表解析器 ==========
@@ -276,6 +276,6 @@ roughRoute_parser = PydanticOutputParser(pydantic_object=RoughRoute)
 simple_poi_list_parser = PydanticListOutputParser(pydantic_type=SimplePOI)
 scenic_detail_list_parser = PydanticListOutputParser(pydantic_type=ScenicDetail)
 # route_related_price_list_parser = PydanticListOutputParser(pydantic_type=RoutePrice)
-route_poi_list_parser = PydanticListOutputParser(pydantic_type=RoutePOI)
+# route_poi_list_parser = PydanticListOutputParser(pydantic_type=RoutePOI)
 
 

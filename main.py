@@ -30,28 +30,28 @@ def format_itinerary(result: dict) -> str:
         report.append(f"采集景点数量：{len(result['simple_city_poi'])}个")
         report.append(f"景点详情数量：{len(result.get('selected_scenic_detail', []))}个")
 
-    if result.get('roughRoute'):
-        report.append(f"\n{'=' * 60}")
-        report.append('🗺️ 粗路线骨架（DEBUG）')
-        report.append('=' * 60)
-        rough_route = result['roughRoute']
-        report.append(f"目的地：{rough_route.get('destination', '')}")
-        report.append(f"总天数：{rough_route.get('days', 0)}")
-        report.append(f"\n路线景点：")
-        for route_poi in rough_route.get('route_pois', []):
-            report.append(f"  第{route_poi['day']}天 - 顺序{route_poi['order']} - {route_poi['name']} ({route_poi.get('time_slot', '')})")
+    # if result.get('roughRoute'):
+    #     report.append(f"\n{'=' * 60}")
+    #     report.append('🗺️ 粗路线骨架（DEBUG）')
+    #     report.append('=' * 60)
+    #     rough_route = result['roughRoute']
+    #     report.append(f"目的地：{rough_route.get('destination', '')}")
+    #     report.append(f"总天数：{rough_route.get('days', 0)}")
+    #     report.append(f"\n路线景点：")
+    #     for route_poi in rough_route.get('route_pois', []):
+    #         report.append(f"  第{route_poi['day']}天 - 顺序{route_poi['order']} - {route_poi['name']} ({route_poi.get('time_slot', '')})")
 
-    if result.get('budget_allocation'):
-        report.append(f"\n{'=' * 60}")
-        report.append('💵 预算分配方案')
-        report.append('=' * 60)
-        budget = result['budget_allocation']
-        report.append(f"总预算：¥{budget.get('total_budget', 0)}")
-        report.append("\n各项分配：")
-        for cat in budget.get('categories', []):
-            report.append(f"  - {cat['name']}：¥{cat['amount']} ({cat['category']})")
-        report.append(f"\n备用金：¥{budget.get('remaining', 0)}")
-        report.append(f"预算评估：{budget.get('assessment', '')}")
+    # if result.get('budget_allocation'):
+    #     report.append(f"\n{'=' * 60}")
+    #     report.append('💵 预算分配方案')
+    #     report.append('=' * 60)
+    #     budget = result['budget_allocation']
+    #     report.append(f"总预算：¥{budget.get('total_budget', 0)}")
+    #     report.append("\n各项分配：")
+    #     for cat in budget.get('categories', []):
+    #         report.append(f"  - {cat['name']}：¥{cat['amount']} ({cat['category']})")
+    #     report.append(f"\n备用金：¥{budget.get('remaining', 0)}")
+    #     report.append(f"预算评估：{budget.get('assessment', '')}")
 
     if result['itinerary']:
         report.append(f"\n{'=' * 60}")
@@ -67,6 +67,19 @@ def format_itinerary(result: dict) -> str:
                 cost_str = f"¥{cost}" if cost > 0 else "免费"
                 report.append(f"  [{time_slot:6s}] {activity['name']} ({duration}h) {cost_str}")
         report.append(f"\n全程预计：¥{itinerary.get('total_estimated_cost', 0)}")
+
+
+    if result.get('budget_allocation'):
+        report.append(f"\n{'=' * 60}")
+        report.append('💵 预算分配方案')
+        report.append('=' * 60)
+        budget = result['budget_allocation']
+        report.append(f"总预算：¥{budget.get('total_budget', 0)}")
+        report.append("\n各项分配：")
+        for cat in budget.get('categories', []):
+            report.append(f"  - {cat['name']}：¥{cat['amount']} ({cat['category']})")
+        report.append(f"\n备用金：¥{budget.get('remaining', 0)}")
+        report.append(f"预算评估：{budget.get('assessment', '')}")
 
     if result['budget_analysis']:
         report.append(f"\n{'=' * 60}")

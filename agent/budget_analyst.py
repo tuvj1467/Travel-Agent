@@ -1,10 +1,11 @@
 """
-预算分析师节点 - 基于行程进行预算分配
+预算分析师节点 - 基于景区路线进行预算分配
 
 设计原则：
-1. 基于 itinerary 中的费用估算和总预算进行预算分配
-2. 不再调用工具查询价格（景点详情已由 researcher 获取）
-3. 直接生成预算分配方案
+1. 基于 itinerary 中的景区门票费用进行预算分配
+2. 为住宿、餐饮、交通预留预算（后续由专门 agent 处理）
+3. 不再调用工具查询价格（景点详情已由 researcher 获取）
+4. 直接生成预算分配方案
 """
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -17,20 +18,21 @@ from utils.utils import retry_on_rate_limit
 
 @retry_on_rate_limit(max_retries=3, delay=2)
 async def budget_analyst_node(state: TravelState) -> TravelState:
-    """预算分析师节点 - 基于行程进行预算分配
+    """预算分析师节点 - 基于景区路线进行预算分配
 
     流程：
-    1. 基于 itinerary 中的费用估算
-    2. 在总预算范围内制定预算分配方案
-    3. 输出预算分配明细
+    1. 基于 itinerary 中的景区门票费用
+    2. 为住宿、餐饮、交通预留预算
+    3. 在总预算范围内制定预算分配方案
+    4. 输出预算分配明细
     """
     print(f"[DEBUG] 执行 budget_analyst_node，预算: {state['budget']}元")
 
     itinerary = state.get("itinerary")
 
     if not itinerary:
-        print(f"[WARN] 缺少行程数据，无法进行预算分配")
-        state["error"] = "缺少行程数据"
+        print(f"[WARN] 缺少景区路线数据，无法进行预算分配")
+        state["error"] = "缺少景区路线数据"
         state["status"] = "checking"
         return state
 
@@ -39,22 +41,26 @@ async def budget_analyst_node(state: TravelState) -> TravelState:
     system_prompt = """你是一名旅行财务顾问。
 
 【任务】
-基于行程规划和总预算，制定合理的预算分配方案。
+基于景区游览路线和总预算，制定合理的预算分配方案。
 
-【行程规划】：
+【景区游览路线】：
 {itinerary}
 
 【总预算】：{budget}元
 【出行天数】：{days}天
 
 【预算分配原则】：
-1. 门票费用：基于行程中的门票价格
-2. 住宿费用：根据天数估算经济型酒店费用
-3. 餐饮费用：根据天数估算每日餐饮费用
-4. 交通费用：估算景点间交通费用
+1. 门票费用：基于景区路线中的门票价格（这是确定的费用）
+2. 住宿费用：根据天数估算经济型酒店费用（约 150-300 元/晚）
+3. 餐饮费用：根据天数估算每日餐饮费用（约 100-150 元/天）
+4. 交通费用：估算景点间交通费用（约 50-100 元/天）
 5. 备用金：预留 10-15% 作为应急资金
 6. 确保总分配不超过总预算
 7. 严禁负数、严禁编造
+
+【注意】：
+当前只包含景区门票费用，住宿、餐饮、交通将由专门的 agent 后续处理。
+这里需要为这些项目预留合理的预算。
 
 {format_instructions}"""
 

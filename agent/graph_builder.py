@@ -45,28 +45,30 @@ def should_call_tool_planner(state: TravelState) -> str:
     """条件边：planner 的路由逻辑
 
     新架构：
-    - researcher 节点预先获取 simple_city_poi 和 selected_scenic_detail
-    - planner 节点两阶段：roughRoute → itinerary
-    - planner 不再调用工具，直接流转到 budget_analyst
+    - researcher 节点预先获取 selected_scenic_detail
+    - planner 节点基于 selected_scenic_detail 生成行程
+    - planner 可以调用工具获取额外信息
     """
     # 如果 planner 返回了 researcher 状态，说明数据缺失，回退到 researcher
     if state.get("status") == "researcher":
         print(f"[DEBUG] planner 发现数据缺失，回退到 researcher")
         return "researcher"
 
-    # 检查是否需要继续在 planner 内部进行阶段转换
-    rough_route = state.get("roughRoute")
-    selected_detail = state.get("selected_scenic_detail")
+    status = state.get("status")
     itinerary = state.get("itinerary")
 
-    # 如果有 roughRoute 但没有 itinerary，需要继续 planner 阶段2
-    if rough_route and not itinerary:
-        print(f"[DEBUG] planner 阶段1完成，进入阶段2生成完整行程")
-        # 返回 planner 自己，重新进入节点
+    # 如果状态是 planning_tool，说明 planner 请求工具调用
+    if status == "planning_tool":
+        print(f"[DEBUG] planner 请求工具调用，进入 tool_node")
+        return "tool_node"
+
+    # 如果状态是 planning，说明需要重新生成行程
+    if status == "planning":
+        print(f"[DEBUG] planner 重新生成行程")
         return "planner"
 
-    # 如果有 itinerary，说明 planner 完成，流转到 budget_analyst
-    if itinerary:
+    # 如果有 itinerary 且状态是 checking，说明 planner 完成，流转到 budget_analyst
+    if itinerary and status == "checking":
         print(f"[DEBUG] planner 完成规划，流转到 budget_analyst")
         return "budget_analyst"
 
@@ -150,7 +152,7 @@ async def build_travel_graph(demand: TravelDemand) -> dict:
     # researcher
     workflow.add_edge("researcher", "planner")
 
-    # planner 的路由（不再调用工具）
+    # planner 的路由
     workflow.add_conditional_edges(
         "planner",
         should_call_tool_planner,
