@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from tools.api.travily import tavily_search
 from tools.mcp.gaode_mcp import gaode_tools, init_gaode_tools
+from tools.mcp.juhe_mcp import juhe_tools, init_juhe_tools
 
 
 # 基础工具列表（始终可用）
@@ -25,7 +26,8 @@ tool_node = None
 """获取当前所有已注册的工具列表（需在 init_tools() 之后调用）"""
 def get_tools() -> List[Any]:
     from tools.mcp.gaode_mcp import gaode_tools
-    return base_tools + gaode_tools
+    from tools.mcp.juhe_mcp import juhe_tools
+    return base_tools + gaode_tools + juhe_tools
 
 
 """截断文本，超出部分用 ... 表示"""
@@ -107,6 +109,7 @@ async def init_tools() -> None:
     global tool_node
     
     await init_gaode_tools()
+    await init_juhe_tools()
     
     tools = get_tools()
     

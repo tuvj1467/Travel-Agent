@@ -212,33 +212,119 @@ class RoutePrice(BaseModel):
     transport_estimate: float = Field(default=0.0, description="片区内日均交通估算（元）")
 
 
+# ========== 新增模型（v2.0 工作流）==========
+
+class FlightInfo(BaseModel):
+    """航班信息 - 仅保留行程规划和预算核算所需的字段
+
+    字段映射（聚合 API → FlightInfo）：
+    - airlineName → airline_name（航司名称）
+    - flightNo → flight_no（航班号，多航段如 CA0953/CA0916）
+    - departureDate → departure_date（出发日期）
+    - departureTime → departure_time（出发时间）
+    - arrivalTime → arrival_time（到达时间）
+    - arrivalName → arrival_name（到达机场名称）
+    - duration → duration（航班时长）
+    - transferNum → transfer_num（航段数量，0=直飞）
+    - ticketPrice → ticket_price（参考票价）
+
+    已忽略的字段（与规划无关）：
+    airline, isCodeShare, equipment, departure, departureName, arrival, arrivalDate
+    """
+    airline_name: str = Field(default="", alias="airlineName", description="航司名称")
+    flight_no: str = Field(default="", alias="flightNo", description="航班号")
+    departure_date: str = Field(default="", alias="departureDate", description="出发日期")
+    departure_time: str = Field(default="", alias="departureTime", description="出发时间")
+    arrival_time: str = Field(default="", alias="arrivalTime", description="到达时间")
+    arrival_name: str = Field(default="", alias="arrivalName", description="到达机场名称")
+    duration: str = Field(default="", description="航班时长")
+    transfer_num: int = Field(default=0, alias="transferNum", description="航段数量")
+    ticket_price: float = Field(default=0.0, alias="ticketPrice", description="参考票价")
+
+    model_config = {
+        "populate_by_name": True,
+        "extra": "ignore"
+    }
+
+
+class FlightResult(BaseModel):
+    """航班查询结果容器 - 包裹 flightInfo 列表"""
+    flight_info: List[FlightInfo] = Field(default_factory=list, alias="flightInfo")
+
+    model_config = {
+        "populate_by_name": True,
+        "extra": "ignore"
+    }
+
+
+class FlightResponse(BaseModel):
+    """航班查询 API 完整响应体"""
+    reason: str = Field(default="", description="请求描述（成功/失败）")
+    result: Optional[FlightResult] = Field(default=None, description="航班查询结果")
+
+    model_config = {
+        "extra": "ignore"
+    }
+
+
+class HotelInfo(BaseModel):
+    """酒店信息"""
+    hotel_id: str = Field(default="", description="酒店ID")
+    name: str = Field(default="", description="酒店名称")
+    price_per_night: float = Field(default=0.0, description="每晚价格（元）")
+    rating: str = Field(default="", description="评分")
+    address: str = Field(default="", description="地址")
+    district: str = Field(default="", description="所属片区")
+
+
+class UserPreferences(BaseModel):
+    """用户旅行偏好"""
+    destination: str = Field(default="", description="目的地")
+    days: int = Field(default=0, description="出行天数")
+    budget: float = Field(default=0.0, description="总预算（元）")
+    interests: str = Field(default="", description="兴趣偏好")
+
+
 # ========== LangGraph 状态定义 ==========
 
 class TravelState(TypedDict):
-    """LangGraph 状态定义 - 在节点之间流转的全局状态"""
+    """LangGraph 状态定义 - 在节点之间流转的全局状态（v2.0 扩展）"""
+    # 用户输入
+    query: str  # 用户原始查询
+    preferences: Optional[UserPreferences]  # 用户旅行偏好
+
+    # 继承自旧版字段（保持兼容）
     destination: str  # 目的地
     days: int  # 出行天数
     budget: float  # 总预算（元）
     interests: str  # 兴趣偏好
+
     messages: Annotated[list, add_messages]  # 消息列表，用于 ToolNode 的工具调用循环
 
+    # 搜索结果
+    simple_city_poi: Optional[List[SimplePOI]]  # 全城轻量化景点列表
+    selected_scenic_detail: Optional[List[ScenicDetail]]  # 路线选中景点的详情
+    weather: Optional[WeatherData]  # 天气数据
+    flights: Optional[List[FlightInfo]]  # 航班信息列表
+    hotels: Optional[List[HotelInfo]]  # 酒店信息列表
 
-    budget_allocation: Optional[BudgetAllocation] = None  # 预算分配方案
-    itinerary: Optional[Itinerary] = None  # 行程规划
-    budget_analysis: Optional[BudgetAnalysis] = None  # 预算分析结果
+    # 规划结果
+    itinerary: Optional[Itinerary]  # 行程规划
+    budget_allocation: Optional[BudgetAllocation]  # 预算分配方案
+    budget_analysis: Optional[BudgetAnalysis]  # 预算分析结果
 
-    iteration_count: int = 0  # 迭代次数，防止无限循环（最大3次）
-    needs_adjustment: bool = False  # 是否需要调整行程
-    error: Optional[str] = None  # 错误信息（如有）
-    status: str = "researching"  # 当前状态：researching/budgeting/planning/checking/completed/failed
-    # 新架构：分层数据字段
-    simple_city_poi: Optional[List[SimplePOI]] = None  # 全城轻量化景点列表（仅名称/ID/坐标/片区/分类）
-    selected_scenic_detail: Optional[List[ScenicDetail]] = None  # 路线选中景点的详情
+    # 用户交互
+    feedback: str  # 用户反馈
+    user_choice: str  # 用户选择：satisfied/modify/adjust_budget
+    final_result: Optional[dict]  # 最终结果
 
-    # roughRoute: Optional[RoughRoute] = None  # 粗路线骨架
-    # route_related_price: Optional[List[RoutePrice]] = None  # 路线相关片区的价格
-    weather: Optional[WeatherData] = None  # 天气数据
-    # routePOI: Optional[List[RoutePOI]] = None  # 路线中的景点条目
+    # 流程控制
+    need_adjust: bool  # 是否需要调整
+    needs_adjustment: bool  # 是否需要调整行程（兼容旧字段）
+    has_airport: bool  # 目的地是否有航班，供行程生成节点判断是否切换为高铁
+    iteration_count: int  # 迭代次数，防止无限循环（最大3次）
+    error: Optional[str]  # 错误信息
+    status: str  # 当前状态
 
 
 # ========== 需求参数模型 ==========
@@ -263,9 +349,8 @@ budget_analysis_parser = PydanticOutputParser(pydantic_object=BudgetAnalysis)
 simplePOI_parser = PydanticOutputParser(pydantic_object=SimplePOI)
 scenic_detail_parser = PydanticOutputParser(pydantic_object=ScenicDetail)
 weather_parser = PydanticOutputParser(pydantic_object=WeatherData)
-# routePOI_parser = PydanticOutputParser(pydantic_object=RoutePOI)
-# roughRoute_parser = PydanticOutputParser(pydantic_object=RoughRoute)
-# route_related_price_parser = PydanticOutputParser(pydantic_object=RoutePrice)
+flight_info_parser = PydanticOutputParser(pydantic_object=FlightInfo)
+flight_response_parser = PydanticOutputParser(pydantic_object=FlightResponse)
 
 # ========== 列表解析器 ==========
 # 用于直接解析 LLM 输出的列表类型，无需定义包装模型
@@ -275,7 +360,6 @@ weather_parser = PydanticOutputParser(pydantic_object=WeatherData)
 # 列表解析器实例
 simple_poi_list_parser = PydanticListOutputParser(pydantic_type=SimplePOI)
 scenic_detail_list_parser = PydanticListOutputParser(pydantic_type=ScenicDetail)
-# route_related_price_list_parser = PydanticListOutputParser(pydantic_type=RoutePrice)
-# route_poi_list_parser = PydanticListOutputParser(pydantic_type=RoutePOI)
+flight_info_list_parser = PydanticListOutputParser(pydantic_type=FlightInfo)
 
 

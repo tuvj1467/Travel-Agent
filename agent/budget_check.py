@@ -1,81 +1,128 @@
 """
-预算检查节点
+预算检查节点 - 对比行程实际预估费用与预算，判断是否超支
+
+设计原则：
+1. 用 itinerary.total_estimated_cost 直接对比 budget（代码计算，不靠 LLM）
+2. 超支时才调用 LLM 生成调整建议
+3. 未超支时跳过 LLM，直接通过
 """
 from langchain_core.prompts import ChatPromptTemplate
 
 from models.models import TravelState
-from models.models import budget_analysis_parser
+from models.models import budget_analysis_parser, BudgetAnalysis
 from config.config import llm
 from utils.utils import retry_on_rate_limit
 
 
 @retry_on_rate_limit(max_retries=3, delay=2)
 async def budget_check_node(state: TravelState) -> TravelState:
-    """预算检查节点 - 验证行程是否超预算，输出结构化 BudgetAnalysis（异步版本）"""
+    """预算检查节点 - 验证行程是否超预算"""
     print(f"[DEBUG] 执行 budget_check_node，当前迭代次数: {state['iteration_count']}")
 
-    budget_allocation = state["budget_allocation"]
-    itinerary = state["itinerary"]
+    itinerary = state.get("itinerary")
+    budget = state.get("budget", 0)
+    budget_allocation = state.get("budget_allocation")
+    tolerance = budget * 0.1  # 10% 容忍度
 
-    budget_text = budget_allocation.model_dump_json(indent=2) if budget_allocation else "无预算数据"
-    itinerary_text = itinerary.model_dump_json(indent=2) if itinerary else "无行程数据"
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """你是一名旅行财务顾问。
-        请分析以下行程是否在{budget}元预算范围内。
-
-        行程规划：
-        {itinerary}
-
-        预算分配：
-        {budget_allocation}
-
-        【重要禁令】：
-        1. 严禁编造价格！必须基于预算分配中的价格信息
-        2. 严禁编造轮渡价格！轮渡和门票独立计算
-        3. 严禁编造交通费用！基于调研信息估算
-        4. 严禁编造住宿价格！基于预算分配中的价格范围
-        5. 如果预算分配中某项价格不明确，标注"基于预算分配估算"，不要编造
-
-        请分析：
-        1. 估算行程的实际总花费（基于预算分配）
-        2. 对比预算{budget}元，判断是否超支
-        3. 如果超支，指出超支项目和金额
-        4. 如果超支，给出具体的调整建议
-
-        请严格按照以下JSON格式输出：
-        {format_instructions}"""),
-        ("human", "请分析行程预算情况，基于预算分配，禁止编造价格")
-    ]).partial(format_instructions=budget_analysis_parser.get_format_instructions())
-
-    chain = prompt | llm
-    response = await chain.ainvoke({
-        "budget": state["budget"],
-        "itinerary": itinerary_text,
-        "budget_allocation": budget_text
-    })
-
-    try:
-        budget_analysis = budget_analysis_parser.parse(response.content)
-        state["budget_analysis"] = budget_analysis
-    except Exception as e:
-        print(f"[WARN] 解析预算分析失败: {e}")
-        state["error"] = f"预算分析解析失败: {e}"
-        state["budget_analysis"] = None
+    if not itinerary:
+        print(f"[WARN] 无行程数据，跳过预算检查")
+        state["needs_adjustment"] = False
         return state
 
-    budget_analysis = state["budget_analysis"]
-    tolerance = state["budget"] * 0.1
+    # 代码层直接对比，不靠 LLM
+    estimated_total = itinerary.total_estimated_cost
+    over_amount = estimated_total - budget
 
-    if budget_analysis.is_over_budget and budget_analysis.over_amount <= tolerance:
-        print(f"[DEBUG] 超支{budget_analysis.over_amount}元，但在容忍度{tolerance:.0f}元内，不调整")
+    print(f"[DEBUG] 行程预估: ¥{estimated_total:.2f}, 预算: ¥{budget:.2f}, "
+          f"差值: ¥{over_amount:.2f}, 容忍度: ¥{tolerance:.2f}")
+
+    if over_amount <= 0:
+        # 未超支
         state["needs_adjustment"] = False
-    elif budget_analysis.is_over_budget:
+        state["budget_analysis"] = BudgetAnalysis(
+            total_estimated=estimated_total,
+            is_over_budget=False,
+            over_amount=0,
+            suggestions=[]
+        )
+        print(f"[DEBUG] 未超支，无需调整")
+    elif over_amount <= tolerance:
+        # 在容忍度内
+        state["needs_adjustment"] = False
+        state["budget_analysis"] = BudgetAnalysis(
+            total_estimated=estimated_total,
+            is_over_budget=True,
+            over_amount=over_amount,
+            suggestions=[f"超支 ¥{over_amount:.0f} 在容忍度 {tolerance:.0f} 元内，暂不调整"]
+        )
+        print(f"[DEBUG] 超支 ¥{over_amount:.2f}，但在容忍度内，不调整")
+    else:
+        # 超支，用 LLM 生成调整建议
         state["needs_adjustment"] = True
         state["iteration_count"] += 1
-        print(f"[DEBUG] 需要调整，迭代次数增加到: {state['iteration_count']}")
-    else:
-        state["needs_adjustment"] = False
+        print(f"[DEBUG] 超支 ¥{over_amount:.2f}，需要调整，迭代次数: {state['iteration_count']}")
+
+        # 生成调整建议
+        if state["iteration_count"] <= 3:
+            itinerary_text = itinerary.model_dump_json(indent=2)
+            allocation_text = (
+                budget_allocation.model_dump_json(indent=2) if budget_allocation else "无"
+            )
+
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", """你是旅行预算顾问。
+
+行程规划（实际花费 {estimated_total} 元，超预算 {budget} 元）：
+{itinerary}
+
+当前预算分配：
+{allocation}
+
+【任务】：生成具体的调整建议，使行程控制在 {budget} 元以内。
+
+【调整优先级】：
+1. 优先：替换高价景点为同片区平价替代
+2. 次要：调整餐饮预算（降低餐标）
+3. 最后：住宿降级（经济型 → 青旅）
+4. 不要：建议"取消机票"——往返交通是刚性支出
+
+{format_instructions}"""),
+                ("human", f"行程超支 ¥{over_amount:.0f}，请给出具体调整建议")
+            ]).partial(format_instructions=budget_analysis_parser.get_format_instructions())
+
+            chain = prompt | llm
+            response = await chain.ainvoke({
+                "estimated_total": estimated_total,
+                "budget": budget,
+                "itinerary": itinerary_text,
+                "allocation": allocation_text
+            })
+
+            try:
+                budget_analysis = budget_analysis_parser.parse(response.content)
+                # 确保字段正确
+                budget_analysis.total_estimated = estimated_total
+                budget_analysis.is_over_budget = True
+                budget_analysis.over_amount = over_amount
+                state["budget_analysis"] = budget_analysis
+            except Exception as e:
+                print(f"[WARN] 解析调整建议失败: {e}")
+                state["budget_analysis"] = BudgetAnalysis(
+                    total_estimated=estimated_total,
+                    is_over_budget=True,
+                    over_amount=over_amount,
+                    suggestions=[f"建议减少 ¥{over_amount:.0f} 的开支"]
+                )
+        else:
+            # 超过 3 次迭代，强制通过
+            print(f"[DEBUG] 已达最大迭代次数 3，强制通过")
+            state["needs_adjustment"] = False
+            state["budget_analysis"] = BudgetAnalysis(
+                total_estimated=estimated_total,
+                is_over_budget=True,
+                over_amount=over_amount,
+                suggestions=["已达最大调整次数，请手动调整预算"]
+            )
 
     print(f"[DEBUG] 是否需要调整: {state['needs_adjustment']}")
     print(f"[DEBUG] budget_check_node 完成")

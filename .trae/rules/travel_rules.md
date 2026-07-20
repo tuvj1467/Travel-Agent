@@ -52,6 +52,7 @@
 - 工具列表集中在 `agent/tool_node.py` 管理
 - 工具调用循环最多 5 次，防止无限循环
 - ToolMessage 内容截断为 2000 字符，防止 token 超限
+- 优先使用模型解析器对工具输出进行结构化解析，正则表达式解析只有失败时才使用
 
 ### 调研节点规则
 - **严禁使用 tavily_search**，只能使用高德地图工具（maps_text_search、maps_weather）
